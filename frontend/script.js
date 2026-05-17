@@ -67,7 +67,8 @@
     if (!res.ok) throw new Error('Erro ao salvar cliente');
   }
   async function deleteClient(id) {
-    await fetch(`${API}/clients/${id}`, { method: 'DELETE', headers: headers() });
+    const res = await fetch(`${API}/clients/${id}`, { method: 'DELETE', headers: headers() });
+    if (!res.ok) throw new Error('Erro ao excluir cliente');
   }
   async function saveService(service) {
     const method = service._new ? 'POST' : 'PUT';
@@ -76,15 +77,17 @@
     if (!res.ok) throw new Error('Erro ao salvar serviço');
   }
   async function deleteService(id) {
-    await fetch(`${API}/services/${id}`, { method: 'DELETE', headers: headers() });
+    const res = await fetch(`${API}/services/${id}`, { method: 'DELETE', headers: headers() });
+    if (!res.ok) throw new Error('Erro ao excluir serviço');
   }
   async function saveAppointment(app) {
     const method = app._new ? 'POST' : 'PUT';
     const url = app._new ? `${API}/appointments` : `${API}/appointments/${app.id}`;
+    // Mapeia snake_case do objeto vindo da API para camelCase que o backend espera
     const payload = {
       id: app.id,
-      clientId: app.clientId,
-      serviceId: app.serviceId,
+      clientId: app.clientId || app.client_id,
+      serviceId: app.serviceId || app.service_id,
       date: app.date,
       time: app.time,
       status: app.status || 'agendado',
@@ -94,7 +97,8 @@
     if (!res.ok) throw new Error('Erro ao salvar agendamento');
   }
   async function deleteAppointment(id) {
-    await fetch(`${API}/appointments/${id}`, { method: 'DELETE', headers: headers() });
+    const res = await fetch(`${API}/appointments/${id}`, { method: 'DELETE', headers: headers() });
+    if (!res.ok) throw new Error('Erro ao excluir agendamento');
   }
 
   // Confirmação
@@ -115,6 +119,25 @@
       confirmMsg.textContent = msg;
       confirmDialog.style.display = 'flex';
     });
+  }
+
+  // Toast
+  function showToast(msg, isError = false) {
+    const toast = document.createElement('div');
+    toast.textContent = msg;
+    toast.style.cssText = `
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: ${isError ? '#d32f2f' : '#388e3c'}; color: white;
+      padding: 12px 24px; border-radius: 40px; font-weight: 500; z-index: 9999;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.3); animation: slideUp 0.3s ease;
+      max-width: 90%; text-align: center;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
   }
 
   // Modal
@@ -222,7 +245,17 @@
       <div style="display:flex; gap:8px; justify-content:flex-end;"><button class="btn-outline" data-edit-client="${c.id}">Editar</button><button class="btn-outline" data-delete-client="${c.id}">Excluir</button></div></div>`).join('');
     document.querySelectorAll('[data-edit-client]').forEach(b => b.addEventListener('click', () => openClientModal(b.dataset.editClient)));
     document.querySelectorAll('[data-delete-client]').forEach(b => b.addEventListener('click', async () => {
-      if(await customConfirm('Excluir este cliente?')) { await deleteClient(b.dataset.deleteClient); await fetchClients(); refreshClients(); }
+      if(await customConfirm('Excluir este cliente?')) {
+        const id = b.dataset.deleteClient;
+        try {
+          await deleteClient(id);
+          clients = clients.filter(c => c.id !== id);
+          refreshClients();
+          showToast('Cliente excluído');
+        } catch(e) {
+          showToast('Erro ao excluir', true);
+        }
+      }
     }));
   }
 
@@ -253,10 +286,15 @@
         city: document.getElementById('cityInput')?.value?.trim() || '',
         state: document.getElementById('stateInput')?.value?.toUpperCase()?.trim() || '' };
       if (!client) newClient._new = true;
-      await saveClient(newClient);
-      await fetchClients();
-      closeModal();
-      refreshClients();
+      try {
+        await saveClient(newClient);
+        await fetchClients();
+        closeModal();
+        refreshClients();
+        showToast('Cliente salvo');
+      } catch(e) {
+        showToast('Erro ao salvar', true);
+      }
     });
   }
 
@@ -274,7 +312,17 @@
     mobile.innerHTML = services.map(s=>`<div class="card-item"><div class="card-row"><strong>${s.name}</strong><span class="badge-service">R$ ${parseFloat(s.price).toFixed(2)}</span></div><div style="display:flex; gap:8px;"><button class="btn-outline" data-edit-service="${s.id}">Editar</button><button class="btn-outline" data-delete-service="${s.id}">Excluir</button></div></div>`).join('');
     document.querySelectorAll('[data-edit-service]').forEach(b=>b.addEventListener('click', ()=>openServiceModal(b.dataset.editService)));
     document.querySelectorAll('[data-delete-service]').forEach(b=>b.addEventListener('click', async ()=>{
-      if(await customConfirm('Excluir este serviço?')) { await deleteService(b.dataset.deleteService); await fetchServices(); refreshServices(); }
+      if(await customConfirm('Excluir este serviço?')) {
+        const id = b.dataset.deleteService;
+        try {
+          await deleteService(id);
+          services = services.filter(s => s.id !== id);
+          refreshServices();
+          showToast('Serviço excluído');
+        } catch(e) {
+          showToast('Erro ao excluir', true);
+        }
+      }
     }));
   }
   function openServiceModal(sId=null) {
@@ -285,7 +333,15 @@
       if(!form.reportValidity() || !(await customConfirm(serv ? 'Salvar alterações?' : 'Salvar novo serviço?'))) return;
       const data = { id: serv ? serv.id : genId(), name: form.name.value, price: parseFloat(form.price.value).toFixed(2) };
       if (!serv) data._new = true;
-      await saveService(data); await fetchServices(); closeModal(); refreshServices();
+      try {
+        await saveService(data);
+        await fetchServices();
+        closeModal();
+        refreshServices();
+        showToast('Serviço salvo');
+      } catch(e) {
+        showToast('Erro ao salvar', true);
+      }
     });
   }
 
@@ -306,7 +362,17 @@
     document.querySelectorAll('[data-cancel-app]').forEach(b=>b.addEventListener('click', async ()=>{
       if(await customConfirm('Cancelar este agendamento?')) {
         const app = appointments.find(a=>a.id===b.dataset.cancelApp);
-        if(app) { app.status='cancelado'; await saveAppointment(app); await fetchAppointments(); refreshAppointments(); }
+        if(app) {
+          app.status = 'cancelado';
+          try {
+            await saveAppointment(app);
+            refreshAppointments();
+            showToast('Agendamento cancelado');
+          } catch(e) {
+            app.status = 'agendado';
+            showToast('Erro ao cancelar', true);
+          }
+        }
       }
     }));
   }
@@ -320,7 +386,15 @@
       if(!form.reportValidity() || !(await customConfirm(app ? 'Salvar alterações?' : 'Confirmar agendamento?'))) return;
       const data = { id: app ? app.id : genId(), clientId: form.clientId.value, date: form.date.value, time: form.time.value, serviceId: form.serviceId.value, paid: form.paid.checked, status: app ? app.status : 'agendado' };
       if (!app) data._new = true;
-      await saveAppointment(data); await fetchAppointments(); closeModal(); refreshAppointments();
+      try {
+        await saveAppointment(data);
+        await fetchAppointments();
+        closeModal();
+        refreshAppointments();
+        showToast('Agendamento salvo');
+      } catch(e) {
+        showToast('Erro ao salvar', true);
+      }
     });
   }
 
@@ -329,7 +403,6 @@
     const title = mode === 'billing' ? 'Faturamento' : 'Relatório';
     const isMobile = window.innerWidth <= 720;
 
-    // Calcular totais para dashboard (apenas na aba Relatório)
     const activeApps = appointments.filter(a=>a.status==='agendado');
     const totalClients = clients.length;
     const totalServices = services.length;
@@ -443,7 +516,7 @@
       const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `relatorio_${mode}_${new Date().toISOString().slice(0,10)}.csv`; link.click();
     });
 
-    // PDF (COM INTERVALO DE DATAS)
+    // PDF
     document.getElementById('exportPdfBtn').addEventListener('click', async () => {
       const start = includeAll.checked ? null : startInp.value;
       const end = includeAll.checked ? null : endInp.value;
@@ -457,89 +530,46 @@
       if (serviceParam) url += `serviceIds=${serviceParam}`;
       const res = await fetch(url, { headers: headers() });
       const data = await res.json();
-      generatePDF(data, mode, start, end);  // <-- Passando as datas
+      generatePDF(data, mode, start, end);
     });
   }
 
-  // FUNÇÃO DE GERAÇÃO DE PDF (AGORA COM PERÍODO)
+  // GERAÇÃO DE PDF
   function generatePDF(data, mode, startDate, endDate) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-
-    // Título
-    doc.setFontSize(18);
-    doc.setTextColor(185, 92, 107);
-    doc.text('Bella Flow', pageWidth / 2, 20, { align: 'center' });
-
-    doc.setFontSize(14);
-    doc.setTextColor(135, 79, 92);
-    const title = mode === 'billing' ? 'Relatório de Faturamento' : 'Relatório de Agendamentos';
-    doc.text(title, pageWidth / 2, 30, { align: 'center' });
-
-    // Período (novo)
-    doc.setFontSize(10);
-    doc.setTextColor(100);
+    doc.setFontSize(18); doc.setTextColor(185, 92, 107); doc.text('Bella Flow', pageWidth/2, 20, {align:'center'});
+    doc.setFontSize(14); doc.setTextColor(135, 79, 92); doc.text(mode==='billing'?'Relatório de Faturamento':'Relatório de Agendamentos', pageWidth/2, 30, {align:'center'});
+    doc.setFontSize(10); doc.setTextColor(100);
     if (startDate && endDate) {
-      const startFormatted = startDate.split('-').reverse().join('/');
-      const endFormatted = endDate.split('-').reverse().join('/');
-      doc.text(`Período: de ${startFormatted} até ${endFormatted}`, pageWidth / 2, 38, { align: 'center' });
+      doc.text(`Período: de ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`, pageWidth/2, 38, {align:'center'});
     } else {
-      doc.text('Período: Todos', pageWidth / 2, 38, { align: 'center' });
+      doc.text('Período: Todos', pageWidth/2, 38, {align:'center'});
     }
-
-    // Data de geração
-    doc.setFontSize(9);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, pageWidth / 2, 45, { align: 'center' });
-
+    doc.setFontSize(9); doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, pageWidth/2, 45, {align:'center'});
     let y = 55;
-
     if (mode === 'billing') {
-      doc.setFontSize(12);
-      doc.setTextColor(0);
-      doc.text('Serviço', 14, y);
-      doc.text('Total (R$)', pageWidth - 40, y);
-      y += 6;
-      doc.setDrawColor(230);
-      doc.line(14, y, pageWidth - 14, y);
-      y += 8;
+      doc.setFontSize(12); doc.setTextColor(0); doc.text('Serviço', 14, y); doc.text('Total (R$)', pageWidth-40, y); y+=6;
+      doc.setDrawColor(230); doc.line(14, y, pageWidth-14, y); y+=8;
       let total = 0;
       data.forEach(row => {
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.setFontSize(11);
-        doc.text(row.service_name, 14, y);
-        doc.text(`R$ ${parseFloat(row.total).toFixed(2)}`, pageWidth - 40, y, { align: 'right' });
-        total += parseFloat(row.total);
-        y += 8;
+        if (y>270) { doc.addPage(); y=20; }
+        doc.setFontSize(11); doc.text(row.service_name, 14, y); doc.text(`R$ ${parseFloat(row.total).toFixed(2)}`, pageWidth-40, y, {align:'right'}); total += parseFloat(row.total); y+=8;
       });
-      y += 4;
-      doc.setDrawColor(180);
-      doc.line(14, y, pageWidth - 14, y);
-      y += 8;
-      doc.setFontSize(12);
-      doc.setFont(undefined, 'bold');
-      doc.text('TOTAL', 14, y);
-      doc.text(`R$ ${total.toFixed(2)}`, pageWidth - 40, y, { align: 'right' });
+      y+=4; doc.setDrawColor(180); doc.line(14, y, pageWidth-14, y); y+=8;
+      doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.text('TOTAL', 14, y); doc.text(`R$ ${total.toFixed(2)}`, pageWidth-40, y, {align:'right'});
     } else {
       doc.setFontSize(10);
-      ['Data/Hora', 'Cliente', 'Serviço', 'Status'].forEach((h, i) => {
-        doc.text(h, 14 + i * 40, y);
-      });
-      y += 4;
-      doc.line(14, y, pageWidth - 14, y);
-      y += 8;
+      ['Data/Hora','Cliente','Serviço','Status'].forEach((h,i) => { doc.text(h, 14+i*40, y); }); y+=4;
+      doc.line(14, y, pageWidth-14, y); y+=8;
       data.forEach(a => {
-        if (y > 270) { doc.addPage(); y = 20; }
+        if (y>270) { doc.addPage(); y=20; }
         doc.text(`${a.date.split('-').reverse().join('/')} ${a.time}`, 14, y);
-        doc.text(a.client_name, 54, y);
-        doc.text(a.service_name, 94, y);
-        doc.text(a.paid ? 'Pago' : 'Pendente', 134, y);
-        y += 7;
+        doc.text(a.client_name, 54, y); doc.text(a.service_name, 94, y); doc.text(a.paid?'Pago':'Pendente', 134, y); y+=7;
       });
     }
-
-    const filename = `relatorio_${mode}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    doc.save(filename);
+    doc.save(`relatorio_${mode}_${new Date().toISOString().slice(0,10)}.pdf`);
   }
 
   // Inicialização
@@ -548,7 +578,7 @@
     try {
       await Promise.all([fetchClients(), fetchServices(), fetchAppointments()]);
     } catch(e) {
-      alert('Erro ao carregar dados. Verifique se o servidor está rodando.');
+      showToast('Erro ao carregar dados. Verifique se o servidor está rodando.', true);
     }
     document.getElementById('skeletonLoader').style.display = 'none';
     switchTab('clients');
